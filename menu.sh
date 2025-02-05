@@ -202,12 +202,13 @@ hysteria2_get_user_handler() {
 
 hysteria2_list_users_handler() {
     users_json=$(python3 $CLI_PATH list-users 2>/dev/null)
+    traffic_json=$(cat /etc/hysteria/users.json 2>/dev/null)
+
     if [ $? -ne 0 ] || [ -z "$users_json" ]; then
         echo -e "${red}Error:${NC} Failed to list users."
         return 1
     fi
 
-    # Extract keys (usernames) from JSON
     users_keys=$(echo "$users_json" | jq -r 'keys[]')
 
     if [ -z "$users_keys" ]; then
@@ -216,18 +217,25 @@ hysteria2_list_users_handler() {
     fi
 
     # Print headers
-    printf "%-20s %-20s %-15s %-20s %-30s %-10s\n" "Username" "Traffic Limit (GB)" "Expiration (Days)" "Creation Date" "Password" "Blocked"
+    printf "%-20s %-20s %-20s %-20s %-20s %-20s %-20s %-10s\n" "Username" "Traffic Limit (GB)" "Used Traffic (GB)" "Upload (GB)" "Download (GB)" "Expiration (Days)" "Creation Date" "Blocked"
 
-    # Print user details
     for key in $users_keys; do
         echo "$users_json" | jq -r --arg key "$key" '
-            "\($key) \(.[$key].max_download_bytes / 1073741824) \(.[$key].expiration_days) \(.[$key].account_creation_date) \(.[$key].password) \(.[$key].blocked)"' | \
+            "\($key) \(.[$key].max_download_bytes / 1073741824) \(((.[$key].upload_bytes + .[$key].download_bytes) / 1073741824)) \(.[$key].upload_bytes / 1073741824) \(.[$key].download_bytes / 1073741824) \(.[$key].expiration_days) \(.[$key].account_creation_date) \(.[$key].blocked)"' | \
         while IFS= read -r line; do
-            IFS=' ' read -r username traffic_limit expiration_date creation_date password blocked <<< "$line"
-            printf "%-20s %-20s %-15s %-20s %-30s %-10s\n" "$username" "$traffic_limit" "$expiration_date" "$creation_date" "$password" "$blocked"
+            IFS=' ' read -r username traffic_limit used_traffic upload download expiration_date creation_date blocked <<< "$line"
+            
+            # گرفتن اطلاعات از users.json
+            upload_bytes=$(echo "$traffic_json" | jq -r --arg key "$username" '.[$key].upload_bytes // 0')
+            download_bytes=$(echo "$traffic_json" | jq -r --arg key "$username" '.[$key].download_bytes // 0')
+
+            used_traffic=$(awk "BEGIN {print ($upload_bytes + $download_bytes) / 1073741824}")
+
+            printf "%-20s %-20s %-20s %-20s %-20s %-20s %-20s %-10s\n" "$username" "$traffic_limit" "$used_traffic" "$upload" "$download" "$expiration_date" "$creation_date" "$blocked"
         done
     done
 }
+
 
 hysteria2_reset_user_handler() {
     while true; do
